@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maquina de Estado</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Máquina de Estados Dinâmica</h1>
+
+  <div class="main-container">
+    
+    <div class="controls-column">
+      <p>Abra o <strong>DevTools → Console</strong> para ver o log detalhado de cada passo.</p>
+      
+      <label for="Selector">Carregar Exemplo:</label>
+      <select id="Selector"></select>
+
+      <label for="machineDescription">Descrição da Máquina:</label>
+      <textarea id="machineDescription" rows="15"></textarea>
+
+      <button id="startBtn">Iniciar / Reiniciar Máquina</button>
+      
+      <div id="stateDisplay">Estado: (Aguardando Início)</div>
+      
+      <h2>Ações Disponíveis (Eventos)</h2>
+      <div id="actions"></div>
+
+      <h2>Executar Sequência de Traces</h2>
+      <div class="trace-runner">
+        <input type="text" id="traceInput" placeholder="Ex: 50ct,Get_coffee ou s.a,w.c">
+        <label for="traceDelayInput">Delay(ms):</label>
+        <input type="number" id="traceDelayInput" value="1000" min="0" step="100">
+        <button id="runTraceBtn">Executar</button>
+      </div>
+
+      <h2>Traces</h2>
+      <div id="trace"></div>
+    </div>
+
+    <div class="graph-column">
+      <h2>Grafo de Estados</h2>
+      <div id="graph"></div>
+    </div>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
