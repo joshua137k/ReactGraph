@@ -13,6 +13,27 @@
   --border-radius: 8px;
 }
 
+
+
+.inspiration-credit {
+  font-size: 0.9em;
+  color: #a9b1d6; 
+  margin-top: 0;
+  margin-bottom: 24px;
+  border-left: 3px solid #7aa2f7; 
+  padding-left: 10px;
+}
+
+.inspiration-credit a {
+  color: #7aa2f7;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.inspiration-credit a:hover {
+  text-decoration: underline;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
