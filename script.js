@@ -420,7 +420,6 @@ class StateMachine {
 
       Object.keys(transitions2).forEach(Tk => {
         const A = variablesBool.some(([key, value]) =>  key === Tk);
-        console.log(this.enabledEvents[autName],Tk,A);
         if (A && !this.enabledEvents[autName].has(Tk)) {
           this.enabledEvents[autName].add(Tk);
         }
