@@ -395,6 +395,39 @@ class StateMachine {
     const combinedRules = internalRules.concat(internalRulesBool);
 
 
+    const toEnable = new Set();
+    const toDisable = new Set();
+
+    combinedRules.forEach(rule => {
+        const conditionMet = !rule.condition || this.variables[autName][rule.condition];
+        if (conditionMet) {
+            console.log(`  Queueing internal rule: ${eventName} ${rule.type} ${rule.target}`);
+            if (rule.type === 'set_true' || rule.type === 'enable') {
+                toEnable.add(rule.target);
+            } else if (rule.type === 'set_false' || rule.type === 'disable') {
+                toDisable.add(rule.target);
+            }
+            firedRules.push({ source: eventName, ...rule });
+        }
+    });
+
+    toEnable.forEach(target => {
+        if (this.systemDef.automata[autName].variables[target]) {
+            this.variables[autName][target] = true; 
+        } else {
+            this.enabledEvents[autName].add(target); 
+        }
+    });
+
+    toDisable.forEach(target => {
+        if (this.systemDef.automata[autName].variables[target]) {
+            this.variables[autName][target] = false;
+        } else {
+            this.enabledEvents[autName].delete(target); 
+        }
+    });
+
+    /*
     combinedRules.forEach(rule => {
       
     const conditionMet = !rule.condition || this.variables[autName][rule.condition];
@@ -406,7 +439,7 @@ class StateMachine {
         else this.enabledEvents[autName].delete(rule.target);
         firedRules.push({ source: eventName, ...rule });
       }
-    });
+    });*/
 
 
     // 2. Apply internal state transition
