@@ -1,22 +1,20 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Maquina de Estado</title>
+  <title>Máquina de Estados Reativa</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Máquina de Estados Dinâmica</h1>
+  <h1>Máquina de Estados Reativa</h1>
 
   <div class="main-container">
     
     <div class="controls-column">
-      <p>Abra o <strong>DevTools → Console</strong> para ver o log detalhado de cada passo.</p>
-
       <p class="inspiration-credit">
         Inspirado no conceito de 
         <a href="https://www.researchgate.net/publication/382459339_Reactive_graphs_in_action_extended_version" target="_blank" rel="noopener noreferrer">
@@ -30,22 +28,30 @@
       <label for="machineDescription">Descrição da Máquina:</label>
       <textarea id="machineDescription" rows="15"></textarea>
 
-      <button id="startBtn">Iniciar / Reiniciar Máquina</button>
+      <div class="main-controls">
+        <button id="startBtn">Iniciar / Reiniciar</button>
+        <button id="undoBtn" disabled>Desfazer</button>
+        <button id="redoBtn" disabled>Refazer</button>
+        <button id="shareBtn">Gerar Link</button>
+      </div>
       
       <div id="stateDisplay">Estado: (Aguardando Início)</div>
       
-      <h2>Ações Disponíveis (Eventos)</h2>
+      <h2>Ações Disponíveis</h2>
       <div id="actions"></div>
 
-      <h2>Executar Sequência de Traces</h2>
+      <h2>Executar Sequência</h2>
       <div class="trace-runner">
-        <input type="text" id="traceInput" placeholder="Ex: 50ct,Get_coffee ou s.a,w.c">
+        <input type="text" id="traceInput" placeholder="Ex: s.a,w.c">
         <label for="traceDelayInput">Delay(ms):</label>
-        <input type="number" id="traceDelayInput" value="1000" min="0" step="100">
+        <input type="number" id="traceDelayInput" value="800" min="0" step="100">
         <button id="runTraceBtn">Executar</button>
       </div>
 
-      <h2>Traces</h2>
+      <h2>Log de Eventos</h2>
+      <div id="logPanel" class="log-panel"></div>
+
+      <h2>Trace Executado</h2>
       <div id="trace"></div>
     </div>
 
@@ -56,6 +62,6 @@
 
   </div>
 
-  <script src="script.js"></script>
+  <script src="script.js" defer></script>
 </body>
 </html>

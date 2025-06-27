@@ -1,4 +1,4 @@
-    const PRESET_SYSTEMS = {
+const PRESET_SYSTEMS = {
         coffee: {
           name: 'Máquina de Café',
           code: `
@@ -82,13 +82,12 @@ ask_soda ->> noSoda
         conflict: {
           name: 'Conflict Example',
           code: `
-init 0
-
+init s0
 bool on
 bool off
 bool c disabled
 
-0 --> 1: a
+s0 --> 1: a
 1 --> 2: b
 2 --> 3: c
 
@@ -152,6 +151,34 @@ Dencrypt ->> Send
 Dencrypt --! ESend
 `
         },
+      dependencies: {
+          name: 'Dependencies',
+          code: `
+aut A {
+init 0
+0 --> 1: look
+1 --> 0: restart
+}
+
+aut B {
+init 0
+bool goLeft disabled
+bool goRight disabled
+0 --> 1: on
+1 --> 2: goLeft
+1 --> 2: goRight
+goLeft --! goRight
+goRight --! goLeft
+
+
+2 --> 0: off
+}
+
+// dependencies
+A.look ->> B.goLeft
+A.look ->> B.goRight
+          `
+        },
       semafaro: {
           name: 'Semáforo',
           code: `
@@ -192,7 +219,7 @@ K --> C : D
 mc.- ->> T.D
           `
         },
-      };
+};
       
     
 class StateMachine {
@@ -208,24 +235,122 @@ class StateMachine {
     this.runTraceBtn = document.getElementById(config.runTraceBtnId);
     this.traceDelayInput = document.getElementById(config.traceDelayInputId);
 
+    this.logPanel = document.getElementById(config.logPanelId);
+    this.undoBtn = document.getElementById(config.undoBtnId);
+    this.redoBtn = document.getElementById(config.redoBtnId);
+    this.shareBtn = document.getElementById(config.shareBtnId);
+
     this.panZoomInstance = null;
-
-
     this.systemDef = null;
-    this.currentStates = {};
-    this.variables = {};
-    this.enabledEvents = {};
-    this.traceHistory = [];
 
+    this.history = [];
+    this.historyIndex = -1;
+
+    this.loadFromURL(); 
     this.setupSelector();
     this.initialize();
+    
     this.startBtn.addEventListener('click', () => {this.traceInput.value = ''; this.initialize()});
     this.runTraceBtn.addEventListener('click', () => this.runTraceSequence());
+    this.undoBtn.addEventListener('click', () => this.undo());
+    this.redoBtn.addEventListener('click', () => this.redo());
+    this.shareBtn.addEventListener('click', () => this.generateShareLink());
+  }
+
+  log(message, level = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${level}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      this.logPanel.appendChild(entry);
+      this.logPanel.scrollTop = this.logPanel.scrollHeight; 
+  }
+
+  loadFromURL() {
+    if (window.location.hash.startsWith('#code=')) {
+      try {
+        const base64Code = window.location.hash.substring(6);
+        const decodedCode = atob(base64Code);
+        this.descriptionArea.value = decodedCode;
+      } catch (e) {
+        console.error("Falha ao decodificar o código da URL.", e);
+
+      }
+    }
+  }
+
+  generateShareLink() {
+    const code = this.descriptionArea.value;
+    if (!code) {
+      this.log("A área de descrição está vazia. Nada para compartilhar.", "warning");
+      return;
+    }
+    const base64Code = btoa(code);
+    const url = new URL(window.location);
+    url.hash = `code=${base64Code}`;
+    
+    navigator.clipboard.writeText(url.href).then(() => {
+        this.log("Link de compartilhamento copiado para a área de transferência!", "success");
+    }).catch(err => {
+        this.log("Falha ao copiar o link.", "error");
+        console.error(err);
+    });
+  }
+
+  undo() {
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      this.loadStateFromHistory();
+    }
+  }
+
+  redo() {
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      this.loadStateFromHistory();
+    }
+  }
+
+  loadStateFromHistory() {
+    const state = this.history[this.historyIndex];
+    if (!state) return;
+    
+    this.currentStates = JSON.parse(JSON.stringify(state.currentStates));
+    this.variables = JSON.parse(JSON.stringify(state.variables));
+    
+    this.enabledEvents = {};
+    for (const autName in state.enabledEvents) {
+        this.enabledEvents[autName] = new Set(state.enabledEvents[autName]);
+    }
+    
+    this.log(`Retornou para o estado #${this.historyIndex}.`);
+    this.updateUI();
+  }
+  
+  saveStateToHistory(eventName = null) {
+      if (this.historyIndex < this.history.length - 1) {
+          this.history = this.history.slice(0, this.historyIndex + 1);
+      }
+      
+      const currentState = {
+          eventName,
+          currentStates: JSON.parse(JSON.stringify(this.currentStates)),
+          variables: JSON.parse(JSON.stringify(this.variables)),
+          enabledEvents: {}
+      };
+
+      for (const autName in this.enabledEvents) {
+          currentState.enabledEvents[autName] = [...this.enabledEvents[autName]];
+      }
+
+      this.history.push(currentState);
+      this.historyIndex = this.history.length - 1;
   }
 
 
   async runTraceSequence() {
-      this.initialize();
+      this.initialize(); 
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const traceString = this.traceInput.value;
       if (!traceString) return;
 
@@ -233,6 +358,7 @@ class StateMachine {
 
       const eventsToRun = traceString.split(',').map(e => e.trim()).filter(Boolean);
       this.runTraceBtn.disabled = true;
+      this.startBtn.disabled = true;
 
       for (const eventString of eventsToRun) {
           const parts = eventString.split('.');
@@ -244,7 +370,7 @@ class StateMachine {
               autName = Object.keys(this.systemDef.automata)[0];
               eventName = eventString;
           } else {
-              alert(`Erro: O evento '${eventString}' precisa estar no formato 'automato.evento' para sistemas com múltiplos autômatos.`);
+              this.log(`Erro: O evento '${eventString}' precisa estar no formato 'automato.evento'.`, 'error');
               break;
           }
           
@@ -253,18 +379,18 @@ class StateMachine {
           const possibleTransitions = autDef?.transitions[currentState] || {};
 
           if (!autDef) {
-              alert(`Erro: Autômato '${autName}' não encontrado.`);
+              this.log(`Erro: Autômato '${autName}' não encontrado.`, 'error');
               break;
           }
           if (!possibleTransitions[eventName]) {
-              alert(`Erro: O evento '${eventName}' não é uma transição válida a partir do estado '${currentState}' no autômato '${autName}'.`);
+              this.log(`Erro: O evento '${eventName}' não é válido do estado '${currentState}' no autômato '${autName}'.`, 'error');
               break;
           }
           const isVariable = autDef.variables.hasOwnProperty(eventName);
           const isEnabled = isVariable ? this.variables[autName][eventName] : this.enabledEvents[autName].has(eventName);
 
           if (!isEnabled) {
-              alert(`Erro: O evento '${eventName}' está desabilitado no autômato '${autName}'.`);
+              this.log(`Erro: O evento '${eventName}' está desabilitado no autômato '${autName}'.`, 'error');
               break;
           }
 
@@ -273,6 +399,7 @@ class StateMachine {
       }
 
       this.runTraceBtn.disabled = false;
+      this.startBtn.disabled = false;
     }
 
   setupSelector() {
@@ -282,20 +409,24 @@ class StateMachine {
       option.textContent = PRESET_SYSTEMS[key].name;
       this.exampleSelector.appendChild(option);
     }
-    const initialKey = Object.keys(PRESET_SYSTEMS)[0];
-    this.descriptionArea.value = PRESET_SYSTEMS[initialKey].code.trim();
+    
+    if (!this.descriptionArea.value) {
+        const initialKey = Object.keys(PRESET_SYSTEMS)[0];
+        this.descriptionArea.value = PRESET_SYSTEMS[initialKey].code.trim();
+    }
+    
     this.exampleSelector.addEventListener('change', (e) => {
       const selectedKey = e.target.value;
+      window.location.hash = ''; 
       this.descriptionArea.value = PRESET_SYSTEMS[selectedKey].code.trim();
       this.initialize();
     });
   }
 
   initialize() {
-    console.clear();
-    console.log('--- Initializing System ---');
+    this.logPanel.innerHTML = ''; 
+    this.log('--- Inicializando Sistema ---');
     
-    this.traceHistory = [];
     try {
       this.systemDef = this.parseDescription(this.descriptionArea.value);
       this.currentStates = {};
@@ -305,7 +436,7 @@ class StateMachine {
       for (const autName in this.systemDef.automata) {
         const autDef = this.systemDef.automata[autName];
         if (!autDef.initialState) {
-          throw new Error(`Automaton '${autName}' is missing an 'init' state.`);
+          throw new Error(`Autômato '${autName}' não possui estado 'init'.`);
         }
         this.currentStates[autName] = autDef.initialState;
         this.variables[autName] = {};
@@ -326,22 +457,29 @@ class StateMachine {
         });
       }
       
-      console.log('Initialization successful.', {
-        states: this.currentStates,
-        variables: this.variables,
-        enabled: this.enabledEvents
-      });
+      this.log('Sistema inicializado com sucesso.', 'success');
+      
+      this.history = [];
+      this.historyIndex = -1;
+      this.saveStateToHistory('INÍCIO');
+      
       this.updateUI();
     } catch (err) {
+      this.log(err.message, 'error');
       console.error(err);
-      alert('Parsing error: ' + err.message);
     }
   }
+
+
   parseDescription(text) {
     const system = { automata: {}, intrusions: [] };
 
 
-      if (!/^\s*aut\s+[\w-]+\s*\{/m.test(text)) {
+    if (!text.trim()) {
+        throw new Error("A descrição da máquina está vazia.");
+    }
+
+    if (!/^\s*aut\s+[\w-]+\s*\{/m.test(text)) {
         text = `aut mc {\n${text}\n}`;
     }
 
@@ -411,44 +549,44 @@ class StateMachine {
     return system;
   }
 
+
   processEvent(autName, eventName) {
     const autDef = this.systemDef.automata[autName];
     const isVariable = autDef.variables.hasOwnProperty(eventName);
     const canProcess = isVariable ? this.variables[autName][eventName] : this.enabledEvents[autName].has(eventName);
 
     if (!canProcess) {
-        console.log(`Event ${autName}.${eventName} cannot be processed because it is disabled.`);
+        this.log(`Evento ${autName}.${eventName} não pode ser processado (desabilitado).`, 'warning');
         return;
     }
 
-    console.log(`--- Processing Event: ${autName}.${eventName} ---`);
-    this.traceHistory.push(`${autName}.${eventName}`);
+    this.log(`--- Processando Evento: ${autName}.${eventName} ---`);
     let fromState = this.currentStates[autName];
-    // 1. Apply internal rules
-    const internalRules = autDef.rules[eventName] || [];
+    
+    const toEnable = new Set();
+    const toDisable = new Set();
     const firedRules = [];
 
     if (eventName in this.variables[autName]) {
       this.variables[autName][eventName] = true;
     }
     
+
+    const internalRules = autDef.rules[eventName] || [];
+
     const variablesBool = Object.entries(this.variables[autName])
     const internalRulesBool = variablesBool
     .filter(([i, _]) => autDef.rules[i] != null)
     .map(([i, _])    => autDef.rules[i])
     .flat();
 
-
     const combinedRules = internalRules.concat(internalRulesBool);
 
-
-    const toEnable = new Set();
-    const toDisable = new Set();
 
     combinedRules.forEach(rule => {
         const conditionMet = !rule.condition || this.variables[autName][rule.condition];
         if (conditionMet) {
-            console.log(`  Queueing internal rule: ${eventName} ${rule.type} ${rule.target}`);
+            this.log(`  Queueing internal rule: ${eventName} ${rule.type} ${rule.target}`);
             if (rule.type === 'set_true' || rule.type === 'enable') {
                 toEnable.add(rule.target);
             } else if (rule.type === 'set_false' || rule.type === 'disable') {
@@ -457,60 +595,6 @@ class StateMachine {
             firedRules.push({ source: eventName, ...rule });
         }
     });
-
-    toEnable.forEach(target => {
-        if (this.systemDef.automata[autName].variables[target]) {
-            this.variables[autName][target] = true; 
-        } else {
-            this.enabledEvents[autName].add(target); 
-        }
-    });
-
-    toDisable.forEach(target => {
-        if (this.systemDef.automata[autName].variables[target]) {
-            this.variables[autName][target] = false;
-        } else {
-            this.enabledEvents[autName].delete(target); 
-        }
-    });
-
-    /*
-    combinedRules.forEach(rule => {
-      
-    const conditionMet = !rule.condition || this.variables[autName][rule.condition];
-      if (conditionMet) {
-        console.log(`  Applying internal rule: ${eventName} ${rule.type} ${rule.target}`);
-        if (rule.type === 'set_true') this.variables[autName][rule.target] = true;
-        else if (rule.type === 'set_false') this.variables[autName][rule.target] = false;
-        else if (rule.type === 'enable') this.enabledEvents[autName].add(rule.target);
-        else this.enabledEvents[autName].delete(rule.target);
-        firedRules.push({ source: eventName, ...rule });
-      }
-    });*/
-
-
-    // 2. Apply internal state transition
-    const transitions = autDef.transitions[this.currentStates[autName]] || {};
-    let toState = this.currentStates[autName]; 
-    if (transitions[eventName]) {
-      toState = transitions[eventName];
-      this.currentStates[autName] = toState;
-
-      const transitions2 = autDef.transitions[this.currentStates[autName]] || {};
-
-      Object.keys(transitions2).forEach(Tk => {
-        const A = variablesBool.some(([key, value]) =>  key === Tk);
-        if (A && !this.enabledEvents[autName].has(Tk)) {
-          this.enabledEvents[autName].add(Tk);
-        }
-      });
-      
-
-    }
-
-
-
-    const animationInfo = { autName, fromState, toState, eventName, firedRules };
 
     this.systemDef.intrusions.forEach(intrusion => {
     if (intrusion.sourceAut === autName && intrusion.sourceEvent === eventName) {
@@ -537,27 +621,82 @@ class StateMachine {
             }
         }
     }
-});
+    });
 
+    const conflicts = new Set([...toEnable].filter(item => toDisable.has(item)));
+    if (conflicts.size > 0) {
+        this.log(`CONFLITO! Evento '${eventName}' tenta habilitar e desabilitar: ${[...conflicts].join(', ')}`, 'error');
+        conflicts.forEach(item => toEnable.delete(item));
+    }
+
+    toEnable.forEach(target => {
+        if (this.systemDef.automata[autName].variables[target]) {
+            this.variables[autName][target] = true; 
+        } else {
+            this.enabledEvents[autName].add(target); 
+        }
+    });
+
+    toDisable.forEach(target => {
+        if (this.systemDef.automata[autName].variables[target]) {
+            this.variables[autName][target] = false;
+        } else {
+            this.enabledEvents[autName].delete(target); 
+        }
+    });
+    
+    const transitions = autDef.transitions[this.currentStates[autName]] || {};
+    let toState = this.currentStates[autName]; 
+    if (transitions[eventName]) {
+      toState = transitions[eventName];
+      this.currentStates[autName] = toState;
+
+      const transitions2 = autDef.transitions[this.currentStates[autName]] || {};
+
+      Object.keys(transitions2).forEach(Tk => {
+        const A = variablesBool.some(([key, value]) =>  key === Tk);
+        if (A && !this.enabledEvents[autName].has(Tk)) {
+          this.enabledEvents[autName].add(Tk);
+        }
+      });
+      
+
+    }
+
+    this.saveStateToHistory(`${autName}.${eventName}`);
+    const animationInfo = { autName, fromState, toState, eventName, firedRules };
     this.updateUI(animationInfo);
   }
+  
+  splitQualifiedName(name, defaultAut) {
+      if (name.includes('.')) {
+          const parts = name.split('.');
+          return { aut: parts[0], target: parts[1] };
+      }
+      return { aut: defaultAut, target: name };
+  }
+
 
   updateUI(animationInfo = null) {
     this._renderStateDisplay();
     this._renderActions();
     this._renderGraph(animationInfo);
     this._renderTrace();
+
+    this.undoBtn.disabled = this.historyIndex <= 0;
+    this.redoBtn.disabled = this.historyIndex >= this.history.length - 1;
   }
 
   _renderStateDisplay() {
       const states = Object.entries(this.currentStates)
         .map(([aut, state]) => `<strong>${aut}</strong>: ${state}`)
         .join(' | ');
-      this.stateDisplay.innerHTML = `Estados Atuais: ${states || '(Aguardando Início)'}`;
+      this.stateDisplay.innerHTML = `Estado Atual: ${states || '(Aguardando Início)'}`;
   }
 
   _renderTrace() {
-    this.traceDiv.innerHTML = this.traceHistory.length > 0 ? this.traceHistory.join(' → ') : '(Nenhum evento processado)';
+    const traceEvents = this.history.slice(1).map(s => s.eventName).filter(Boolean);
+    this.traceDiv.innerHTML = traceEvents.length > 0 ? traceEvents.join(' → ') : '(Nenhum evento processado)';
   }
 
   _renderActions() {
@@ -575,15 +714,18 @@ class StateMachine {
       const transitions = this.systemDef.automata[autName].transitions[this.currentStates[autName]] || {};
       const availableActions = Object.keys(transitions);
       
-      availableActions.sort().forEach(evt => {
-        const btn = document.createElement('button');
-        btn.textContent = evt;
-        //btn.disabled = !this.enabledEvents[autName].has(evt);
-        const isEnabled = this.systemDef.automata[autName].variables[evt] ? this.variables[autName][evt] : this.enabledEvents[autName].has(evt);
-        btn.disabled = !isEnabled;
-        btn.addEventListener('click', () => this.processEvent(autName, evt));
-        buttonsDiv.appendChild(btn);
-      });
+      if (availableActions.length === 0) {
+          buttonsDiv.textContent = "Nenhum evento a partir deste estado.";
+      } else {
+          availableActions.sort().forEach(evt => {
+            const btn = document.createElement('button');
+            btn.textContent = evt;
+            const isEnabled = this.systemDef.automata[autName].variables[evt] ? this.variables[autName][evt] : this.enabledEvents[autName].has(evt);
+            btn.disabled = !isEnabled;
+            btn.addEventListener('click', () => this.processEvent(autName, evt));
+            buttonsDiv.appendChild(btn);
+          });
+      }
       
       block.appendChild(title);
       block.appendChild(buttonsDiv);
@@ -593,27 +735,27 @@ class StateMachine {
 
 
   _animateTransition(svg, { autName, fromState, toState, eventName, firedRules  }) {
-
-
-    
-    // Anima a aresta
     const edge = svg.querySelector(`#edge_${autName}_${fromState}_${eventName}_${toState}`);
     if (edge) {
       edge.classList.add('traversed');
     }
+    
     firedRules.forEach(rule => {
-            const ruleId = `rule_${autName}_${rule.source}_${rule.target}`;
-            const ruleArrow = svg.querySelector(`#${ruleId}`);
-       
-            if (ruleArrow) {
-                ruleArrow.classList.add('triggered');
-            }
-        });
+        const qualifiedSource = rule.source.includes('.') ? rule.source : `${rule.autName}.${rule.source}`;
+        const sourceAut = this.splitQualifiedName(qualifiedSource, autName).aut;
+        const sourceEvent = this.splitQualifiedName(qualifiedSource, autName).target;
 
+        const ruleId = `rule_${sourceAut}_${sourceEvent}_${rule.target}`;
+        const ruleArrow = svg.querySelector(`#${ruleId}`);
+   
+        if (ruleArrow) {
+            ruleArrow.classList.add('triggered');
+        }
+    });
 
     setTimeout(() => {
-        svg.querySelectorAll('.activated, .deactivated, .traversed').forEach(el => {
-            el.classList.remove('activated', 'deactivated', 'traversed');
+        svg.querySelectorAll('.activated, .deactivated, .traversed, .triggered').forEach(el => {
+            el.classList.remove('activated', 'deactivated', 'traversed', 'triggered');
         });
     }, 800);
 }
@@ -648,7 +790,6 @@ class StateMachine {
             + `    color="${theme.border}";\n`
             + `    bgcolor="#${theme.surface.substring(1)}20";\n`; 
       
-      // Estados (círculos)
       def.states.forEach(s => {
         const isCurrent = s === this.currentStates[autName];
         const fillColor = isCurrent ? theme.success : theme.surface;
@@ -657,26 +798,23 @@ class StateMachine {
         dot += `    "s_${autName}_${s}" [id="s_${autName}_${s}", class="node", label="${s}", shape=${shape}, fillcolor="${fillColor}", fontcolor="${fontColor}", color="${theme.border}"];\n`;
       });
 
-      // Eventos e Variáveis (caixas)
       const allItems = new Set([...def.events, ...Object.keys(def.variables)]);
       allItems.forEach(item => {
         let label = item, fontColor = theme.text, fillColor = theme.surface;
 
-        if (def.variables[item]) { // Se for uma variável booleana
+        if (def.variables[item]) {
             label = `${item} = ${this.variables[autName][item]}`;
             fillColor = this.variables[autName][item] ? theme.success : theme.red;
             fontColor = theme.textDark;
-        } else if (!this.enabledEvents[autName].has(item)) { // Se for um evento desabilitado
+        } else if (!this.enabledEvents[autName].has(item)) {
             fillColor = theme.disabled;
             fontColor = theme.textDisabled;
         }
-        dot += `    "v_${autName}_${item}" [label="${label}", shape=box, fillcolor="${fillColor}", fontcolor="${fontColor}", color="${theme.border}"];\n`;
+        dot += `    "v_${autName}_${item}" [id="v_${autName}_${item}", label="${label}", shape=box, fillcolor="${fillColor}", fontcolor="${fontColor}", color="${theme.border}"];\n`;
       });
       
-      // Transições Internas (setas entre estados)
       Object.entries(def.transitions).forEach(([from, map]) => {
           Object.entries(map).forEach(([evt, to]) => {
-              //const isEnabled = this.enabledEvents[autName].has(evt);
               const isEnabled = def.variables[evt] ? this.variables[autName][evt] : this.enabledEvents[autName].has(evt);
 
               const style = isEnabled ? 'solid' : 'dashed';
@@ -688,7 +826,6 @@ class StateMachine {
           });
       });
 
-      // Regras Internas (setas entre eventos/variáveis)
       Object.entries(def.rules).forEach(([evt, rules]) => {
         rules.forEach(rule => {
           const isEnable = rule.type === 'enable' || rule.type === 'set_true';
@@ -706,14 +843,14 @@ class StateMachine {
       dot += `  }\n`;
     }
     
-    // Regras de Intrusão
     this.systemDef.intrusions.forEach(rule => {
       const isEnable = rule.type === 'enable';
       const arrowhead = isEnable ? 'normal' : 'tee';
-      const style = isEnable ? 'solid' : 'dashed';
+      const style = 'dashed'; 
       const color = isEnable ? theme.blue : theme.red;
+      const ruleId = `rule_${rule.sourceAut}_${rule.sourceEvent}_${rule.targetEvent}`;
       dot += `  "v_${rule.sourceAut}_${rule.sourceEvent}" -> "v_${rule.targetAut}_${rule.targetEvent}" `
-          + `[style=${style}, color="${color}", constraint=false, arrowhead=${arrowhead}, penwidth=2];\n`;
+          + `[style=${style}, color="${color}", constraint=false, arrowhead=${arrowhead}, penwidth=2, id="${ruleId}", class="rule-arrow"];\n`;
     });
 
     dot += '\n}';
@@ -725,7 +862,6 @@ class StateMachine {
   _renderGraph(animationInfo = null) {
     if (!this.systemDef) { this.graphDiv.innerHTML = ''; return; }
     
-
     if (this.panZoomInstance) {
         this.panZoomInstance.destroy();
         this.panZoomInstance = null;
@@ -756,16 +892,22 @@ class StateMachine {
             });
 
           }).catch(err => {
-            this.graphDiv.textContent = 'Erro ao renderizar o grafo.'; console.error(err); this.graphDiv.style.opacity = 1;
+            this.log('Erro ao renderizar o grafo.', 'error');
+            this.graphDiv.textContent = 'Erro ao renderizar o grafo.';
+            this.graphDiv.style.opacity = 1;
+            console.error(err);
           });
       } catch (e) {
-        console.error(e); this.graphDiv.textContent = 'Falha ao carregar motor de grafos.'; this.graphDiv.style.opacity = 1;
+        this.log('Falha ao carregar motor de grafos (Viz.js).', 'error');
+        this.graphDiv.textContent = 'Falha ao carregar motor de grafos.';
+        this.graphDiv.style.opacity = 1;
+        console.error(e);
       }
     }, 200);
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
   new StateMachine({
     exampleSelectorId: 'Selector',
     descriptionId: 'machineDescription',
@@ -776,6 +918,10 @@ window.addEventListener('DOMContentLoaded', () => {
     traceDivId: 'trace',
     traceInputId: 'traceInput',
     runTraceBtnId: 'runTraceBtn',
-    traceDelayInputId: 'traceDelayInput'
+    traceDelayInputId: 'traceDelayInput',
+    logPanelId: 'logPanel',
+    undoBtnId: 'undoBtn',
+    redoBtnId: 'redoBtn',
+    shareBtnId: 'shareBtn'
   });
 });
