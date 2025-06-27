@@ -152,6 +152,46 @@ Dencrypt ->> Send
 Dencrypt --! ESend
 `
         },
+      semafaro: {
+          name: 'Semáforo',
+          code: `
+
+aut traffic_light {
+  init Green
+  bool tick disabled
+  Green  --> Yellow : tick
+  Yellow --> Red    : tick
+  Red    --> Green  : tick
+
+  tick --! tick
+}
+
+aut timer {
+  init Idle
+  Idle --> Ticking : start
+  Ticking --> Idle : timer_expired
+}
+
+
+timer.timer_expired ->> traffic_light.tick
+          `
+        },
+      playground: {
+          name: 'Playground',
+          code: `
+aut mc {
+init A
+A --> C : -
+}
+aut T{
+init K
+bool D disabled
+
+K --> C : D
+}
+mc.- ->> T.D
+          `
+        },
       };
       
     
@@ -371,11 +411,17 @@ class StateMachine {
   }
 
   processEvent(autName, eventName) {
-    if (!this.enabledEvents[autName]?.has(eventName)) return;
+    const autDef = this.systemDef.automata[autName];
+    const isVariable = autDef.variables.hasOwnProperty(eventName);
+    const canProcess = isVariable ? this.variables[autName][eventName] : this.enabledEvents[autName].has(eventName);
+
+    if (!canProcess) {
+        console.log(`Event ${autName}.${eventName} cannot be processed because it is disabled.`);
+        return;
+    }
 
     console.log(`--- Processing Event: ${autName}.${eventName} ---`);
     this.traceHistory.push(`${autName}.${eventName}`);
-    const autDef = this.systemDef.automata[autName];
     let fromState = this.currentStates[autName];
     // 1. Apply internal rules
     const internalRules = autDef.rules[eventName] || [];
@@ -465,17 +511,32 @@ class StateMachine {
 
     const animationInfo = { autName, fromState, toState, eventName, firedRules };
 
-    // 3. Apply intrusion rules triggered by this event
     this.systemDef.intrusions.forEach(intrusion => {
-      if (intrusion.sourceAut === autName && intrusion.sourceEvent === eventName) {
+    if (intrusion.sourceAut === autName && intrusion.sourceEvent === eventName) {
         console.log(`  Applying intrusion: -> ${intrusion.targetAut}.${intrusion.targetEvent}`);
-        const targetSet = this.enabledEvents[intrusion.targetAut];
-        if (targetSet) {
-          if (intrusion.type === 'enable') targetSet.add(intrusion.targetEvent);
-          else targetSet.delete(intrusion.targetEvent);
+        
+        const targetAutDef = this.systemDef.automata[intrusion.targetAut];
+
+        if (targetAutDef && targetAutDef.variables.hasOwnProperty(intrusion.targetEvent)) {
+            if (intrusion.type === 'enable') {
+                console.log(`    Setting variable ${intrusion.targetAut}.${intrusion.targetEvent} to true`);
+                this.variables[intrusion.targetAut][intrusion.targetEvent] = true;
+            } else { // tipo 'disable'
+                console.log(`    Setting variable ${intrusion.targetAut}.${intrusion.targetEvent} to false`);
+                this.variables[intrusion.targetAut][intrusion.targetEvent] = false;
+            }
+        } else {
+            const targetSet = this.enabledEvents[intrusion.targetAut];
+            if (targetSet) {
+                if (intrusion.type === 'enable') {
+                    targetSet.add(intrusion.targetEvent);
+                } else {
+                    targetSet.delete(intrusion.targetEvent);
+                }
+            }
         }
-      }
-    });
+    }
+});
 
     this.updateUI(animationInfo);
   }
@@ -516,7 +577,9 @@ class StateMachine {
       availableActions.sort().forEach(evt => {
         const btn = document.createElement('button');
         btn.textContent = evt;
-        btn.disabled = !this.enabledEvents[autName].has(evt);
+        //btn.disabled = !this.enabledEvents[autName].has(evt);
+        const isEnabled = this.systemDef.automata[autName].variables[evt] ? this.variables[autName][evt] : this.enabledEvents[autName].has(evt);
+        btn.disabled = !isEnabled;
         btn.addEventListener('click', () => this.processEvent(autName, evt));
         buttonsDiv.appendChild(btn);
       });
@@ -612,9 +675,11 @@ class StateMachine {
       // Transições Internas (setas entre estados)
       Object.entries(def.transitions).forEach(([from, map]) => {
           Object.entries(map).forEach(([evt, to]) => {
-              const isEnabled = this.enabledEvents[autName].has(evt);
+              //const isEnabled = this.enabledEvents[autName].has(evt);
+              const isEnabled = def.variables[evt] ? this.variables[autName][evt] : this.enabledEvents[autName].has(evt);
+
               const style = isEnabled ? 'solid' : 'dashed';
-              const color = isEnabled ? theme.text : theme.disabled; // Cor também muda para indicar desabilitado
+              const color = isEnabled ? theme.text : theme.disabled; 
 
               dot += `    "s_${autName}_${from}" -> "s_${autName}_${to}" `
                   + `[label="${evt}", id="edge_${autName}_${from}_${evt}_${to}", `
