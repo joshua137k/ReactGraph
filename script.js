@@ -258,7 +258,10 @@ class StateMachine {
               alert(`Erro: O evento '${eventName}' não é uma transição válida a partir do estado '${currentState}' no autômato '${autName}'.`);
               break;
           }
-          if (!this.enabledEvents[autName]?.has(eventName)) {
+          const isVariable = autDef.variables.hasOwnProperty(eventName);
+          const isEnabled = isVariable ? this.variables[autName][eventName] : this.enabledEvents[autName].has(eventName);
+
+          if (!isEnabled) {
               alert(`Erro: O evento '${eventName}' está desabilitado no autômato '${autName}'.`);
               break;
           }
