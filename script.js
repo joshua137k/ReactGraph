@@ -208,6 +208,8 @@ class StateMachine {
     this.runTraceBtn = document.getElementById(config.runTraceBtnId);
     this.traceDelayInput = document.getElementById(config.traceDelayInputId);
 
+    this.panZoomInstance = null;
+
 
     this.systemDef = null;
     this.currentStates = {};
@@ -305,24 +307,20 @@ class StateMachine {
         if (!autDef.initialState) {
           throw new Error(`Automaton '${autName}' is missing an 'init' state.`);
         }
-        // Initialize state, variables, and enabled events for each automaton
         this.currentStates[autName] = autDef.initialState;
         this.variables[autName] = {};
         for (const varName in autDef.variables) {
           this.variables[autName][varName] = autDef.variables[varName].initial;
         }
         
-        // Passo 1: Habilita todos os eventos por padrão
         this.enabledEvents[autName] = new Set(autDef.events);
         
-        // Passo 2: Desabilita eventos baseados na declaração 'bool ... disabled'
         for (const varName in autDef.variables) {
           if (autDef.variables[varName].initial === false) {
             this.enabledEvents[autName].delete(varName);
           }
         }
 
-        // MODIFICAÇÃO 4: Desabilita eventos baseados na sintaxe '--> ... disabled'
         autDef.initiallyDisabledEvents.forEach(eventToDisable => {
             this.enabledEvents[autName].delete(eventToDisable);
         });
@@ -723,8 +721,16 @@ class StateMachine {
   }
 
   
+
   _renderGraph(animationInfo = null) {
     if (!this.systemDef) { this.graphDiv.innerHTML = ''; return; }
+    
+
+    if (this.panZoomInstance) {
+        this.panZoomInstance.destroy();
+        this.panZoomInstance = null;
+    }
+
     this.graphDiv.style.opacity = 0;
     setTimeout(() => {
       try {
@@ -732,13 +738,22 @@ class StateMachine {
           .then(svg => {
             svg.removeAttribute('width');
             svg.removeAttribute('height');
-            this.graphDiv.innerHTML = ''; this.graphDiv.appendChild(svg); this.graphDiv.style.opacity = 1;
+            this.graphDiv.innerHTML = ''; 
+            this.graphDiv.appendChild(svg); 
+            this.graphDiv.style.opacity = 1;
 
             if (animationInfo) {
               this._animateTransition(svg, animationInfo);
             }
 
-
+            this.panZoomInstance = svgPanZoom(svg, {
+              panEnabled: true,
+              zoomEnabled: true,
+              fit: true,    
+              center: true, 
+              minZoom: 0.1, 
+              maxZoom: 10   
+            });
 
           }).catch(err => {
             this.graphDiv.textContent = 'Erro ao renderizar o grafo.'; console.error(err); this.graphDiv.style.opacity = 1;
